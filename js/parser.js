@@ -20,8 +20,9 @@ export function parseDataTxtToRules(text) {
 		const trimmed = clean.trim();
 		if (!trimmed) continue;
 
-		if (trimmed.endsWith(':')) {
+		if (trimmed.endsWith(':') && !trimmed.startsWith('?')) {
 			const title = trimmed.replace(/:$/, '').trim();
+			if (!title) continue;
 			while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
 			const node = { title, children: [], depth };
 			stack[stack.length - 1].children.push(node);

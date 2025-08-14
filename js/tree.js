@@ -15,14 +15,15 @@ function renderNode(container, node, depth, parentPath, onSelect) {
 	const li = document.createElement('li'); li.className = 'tree-item';
 	const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='center'; row.style.gap='6px';
 	const hasChildren = (node.children||[]).length > 0;
-	const toggle = document.createElement('button'); toggle.textContent = hasChildren ? '▸' : '·'; toggle.className='tree-btn'; toggle.style.width='auto'; toggle.style.minWidth='28px';
+	const toggle = document.createElement('button');
+	toggle.className='tree-btn'; toggle.style.width='auto'; toggle.style.minWidth='28px';
+	toggle.textContent = hasChildren ? '▸' : '';
 	let expanded = depth <= 1;
 	toggle.addEventListener('click', () => { if (!hasChildren) return; expanded = !expanded; toggle.textContent = expanded ? '▾' : '▸'; childBox.style.display = expanded ? '' : 'none'; });
 	const btn = document.createElement('button'); btn.className='tree-btn'; btn.style.flex='1'; btn.dataset.path = path.join('>');
 	const fieldCount = (node.form?.fields || []).length;
-	// Build label safely using DOM
 	btn.appendChild(document.createTextNode(node.title));
-	if (fieldCount) {
+	if (fieldCount > 0) {
 		const sep = document.createTextNode(' · ');
 		btn.appendChild(sep);
 		const small = document.createElement('span');
@@ -34,7 +35,7 @@ function renderNode(container, node, depth, parentPath, onSelect) {
 	row.appendChild(toggle); row.appendChild(btn); li.appendChild(row);
 	const childBox = document.createElement('div'); childBox.style.marginLeft='20px'; li.appendChild(childBox);
 	container.appendChild(li);
-	if (!expanded) childBox.style.display='none'; else toggle.textContent='▾';
+	if (!expanded) childBox.style.display='none'; else if (hasChildren) toggle.textContent='▾';
 	for (const child of (node.children||[])) renderNode(childBox, child, depth+1, path, onSelect);
 }
 
