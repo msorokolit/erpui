@@ -25,7 +25,10 @@ function renderNode(container, node, depth, parentPath, idsToShow, onSelect, que
 	const toggle = document.createElement('button'); toggle.textContent = hasChildren ? '▸' : '·'; toggle.className='tree-btn'; toggle.style.width='auto'; toggle.style.minWidth='28px';
 	let expanded = depth <= 1;
 	toggle.addEventListener('click', () => { if (!hasChildren) return; expanded = !expanded; toggle.textContent = expanded ? '▾' : '▸'; childBox.style.display = expanded ? '' : 'none'; });
-	const btn = document.createElement('button'); btn.className='tree-btn'; btn.style.flex='1'; btn.dataset.path = path.join('>'); btn.innerHTML = highlightTitle(node.title, query);
+	const btn = document.createElement('button'); btn.className='tree-btn'; btn.style.flex='1'; btn.dataset.path = path.join('>');
+	const fieldCount = (node.form?.fields || []).length;
+	const title = fieldCount ? `${node.title} · <span class="small">${fieldCount} полів</span>` : node.title;
+	btn.innerHTML = highlightTitle(title, query);
 	btn.addEventListener('click', () => onSelect({ ...node, path }));
 	if (idsToShow && !idsToShow.has(node.__id)) { li.style.display = 'none'; }
 	row.appendChild(toggle); row.appendChild(btn); li.appendChild(row);

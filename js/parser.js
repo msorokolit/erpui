@@ -1,9 +1,7 @@
 // Parser for data.txt → JSON rules
-// Heuristics:
-// - Depth is derived from leading control chars (e.g., \x11), tabs, and spaces
-// - Headings: lines ending with ':' create tree nodes
-// - Field lines: tokens like ?R, ?N, ?S, ?D, ?C, ?I, ?B1, ?Q, ?Z, ?TS, ?MT, etc. are mapped to types
-// - Right-side meta like "·R 37 ·1·" or "·N·1·1·12·" are parsed into structured metadata
+// - Headings: lines ending with ':' create tree nodes (routes)
+// - Fields: lines with ?XX tokens are attached to the nearest heading
+// - Depth: ignore ALL control chars; compute indentation only from spaces/tabs
 
 const FIELD_REGEX = /\?([A-Z]{1,3}[0-9]?)(?:\s+([^:]+))?:/u;
 
@@ -15,16 +13,16 @@ export function parseDataTxtToRules(text) {
 
 	for (let raw of lines) {
 		if (raw == null) continue;
-		// Strip some non-printables while preserving indentation chars for depth
-		const clean = raw.replace(/[\u0000\u0002\u000f\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a]/g, '').trimEnd();
+		// Strip ALL control chars from the entire line for parsing
+		const noCtrl = raw.replace(/[\x00-\x1F\x7F]/g, '');
+		const clean = noCtrl.trimEnd();
 		const trimmed = clean.trim();
 		if (!trimmed) continue;
 
-		const depth = computeDepth(raw);
+		const depth = computeDepth(noCtrl);
 
 		if (trimmed.endsWith(':')) {
 			const title = trimmed.replace(/:$/, '').trim();
-			// Adjust stack to current depth
 			while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
 			const node = { title, children: [], depth };
 			stack[stack.length - 1].children.push(node);
@@ -33,22 +31,16 @@ export function parseDataTxtToRules(text) {
 			continue;
 		}
 
-		// If not heading: try field
 		const field = parseFieldLine(trimmed);
 		if (field) {
 			const current = stack[stack.length - 1];
 			if (!current.form) current.form = { title: current.title, fields: [], meta: [] };
-			if (field.kind === 'meta') {
-				current.form.meta.push(field.value);
-				lastFieldHolder = current;
-			} else {
-				current.form.fields.push(field);
-				lastFieldHolder = current;
-			}
+			if (field.kind === 'meta') current.form.meta.push(field.value);
+			else current.form.fields.push(field);
+			lastFieldHolder = current;
 			continue;
 		}
 
-		// If line is plain meta continuation (e.g., "multiline" or line of codes), attach to last holder
 		if (lastFieldHolder && /^[\p{L}\p{N}\$#].*/u.test(trimmed)) {
 			lastFieldHolder.form = lastFieldHolder.form || { title: lastFieldHolder.title, fields: [], meta: [] };
 			lastFieldHolder.form.meta.push(trimmed);
@@ -59,30 +51,22 @@ export function parseDataTxtToRules(text) {
 	return root;
 }
 
-function computeDepth(raw) {
-	// Count leading DC1 (\x11), other control chars, tabs, and spaces
-	let i = 0, dc1 = 0, ctrl = 0, tabs = 0, spaces = 0;
-	while (i < raw.length) {
-		const code = raw.charCodeAt(i);
-		const ch = raw[i];
-		if (code === 0x11) { dc1++; i++; continue; }
-		if (ch === '\t') { tabs++; i++; continue; }
+function computeDepth(lineNoCtrl) {
+	// Count only spaces/tabs before first non-space char
+	let i = 0, spaces = 0;
+	while (i < lineNoCtrl.length) {
+		const ch = lineNoCtrl[i];
 		if (ch === ' ') { spaces++; i++; continue; }
-		if (code <= 31) { ctrl++; i++; continue; }
+		if (ch === '\t') { spaces += 4; i++; continue; }
 		break;
 	}
-	// Weight DC1 highest, then tab, then spaces and generic ctrl
-	const depth = dc1 + tabs + Math.floor(spaces / 2) + Math.floor(ctrl / 4);
-	return depth;
+	return Math.floor(spaces / 2);
 }
 
 function parseFieldLine(line) {
 	const m = line.match(FIELD_REGEX);
 	if (!m) {
-		// meta tails like "$" or codes like "Z ·9·"; capture as meta
-		if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) {
-			return { kind: 'meta', value: line };
-		}
+		if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) return { kind: 'meta', value: line };
 		return null;
 	}
 	const code = m[1];
@@ -143,7 +127,6 @@ function parseRightMeta(rest) {
 function deriveConstraints(meta) {
 	const c = {};
 	if (!meta || !meta.numbers || meta.numbers.length === 0) return c;
-	// Common pattern: N·min·min2·max· — we take min = first numeric, max = last numeric when >= 2 nums
 	if (meta.numbers.length >= 2) {
 		const nums = meta.numbers.map(parseFloat).filter(n => Number.isFinite(n));
 		if (nums.length >= 2) {
@@ -155,6 +138,7 @@ function deriveConstraints(meta) {
 }
 
 function annotatePaths(node, path) {
+	// Path contains only headings (routes), never fields
 	node.path = [...path, node.title].filter(Boolean);
 	if (node.form) node.form.path = node.path;
 	for (const child of (node.children || [])) annotatePaths(child, node.path);
