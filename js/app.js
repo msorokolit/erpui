@@ -19,6 +19,8 @@ const els = {
 	search: document.getElementById('searchInput'),
 	exportJsonBtn: document.getElementById('exportJsonBtn'),
 	clearCacheBtn: document.getElementById('clearCacheBtn'),
+	fileInput: document.getElementById('fileInput'),
+	loadFileBtn: document.getElementById('loadFileBtn'),
 };
 
 async function loadDataTxt() {
@@ -71,7 +73,7 @@ function docBlock(node) {
 				<div>Шлях</div><div>${escapeHtml(breadcrumbs)}</div>
 				<div>Поля</div><div>${escapeHtml(fields)}</div>
 			</div>
-			<div class="small">Правила згенеровано з data.txt на клієнті</div>
+			<div class="small">Вузлів: ${(node.children||[]).length} • Полів: ${(node.form?.fields||[]).length}</div>
 		</div>
 	`;
 }
@@ -105,6 +107,21 @@ function hookHeaderActions() {
 	els.search.addEventListener('input', () => {
 		renderTree(els.nav, state.tree, onSelectNode, els.search.value.trim());
 	});
+	els.loadFileBtn.addEventListener('click', () => els.fileInput.click());
+	els.fileInput.addEventListener('change', async (e) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		const txt = await file.text();
+		localStorage.setItem('erp_data_txt_v1', txt);
+		state.text = txt;
+		state.rules = parseDataTxtToRules(state.text);
+		state.tree = buildTree(state.rules);
+		els.intro.style.display = 'none';
+		els.content.innerHTML = '';
+		els.docs.innerHTML = '';
+		renderTree(els.nav, state.tree, onSelectNode, '');
+		toast('Завантажено файл правил');
+	});
 }
 
 (async function boot(){
@@ -114,14 +131,14 @@ function hookHeaderActions() {
 		renderTree(els.nav, state.tree, onSelectNode, '');
 	} catch (err) {
 		console.error(err);
+		hookHeaderActions();
 		els.intro.style.display = '';
 		els.content.innerHTML = '';
 		els.docs.innerHTML = '';
 		els.intro.innerHTML = `
 			<div class="card">
 				<h3>Помилка завантаження</h3>
-				<div class="small">Не вдається завантажити <code>data.txt</code>. Будь ласка, відкрийте цей застосунок через локальний HTTP сервер (не як file://).</div>
-				<div class="small">Приклад: <code>python3 -m http.server 8000 -d /workspace</code>, далі відкрийте <code>http://localhost:8000/</code></div>
+				<div class="small">Не вдається завантажити <code>data.txt</code>. Ви можете завантажити файл вручну кнопкою "Load file" у верхній панелі або запустити локальний HTTP сервер.</div>
 			</div>
 		`;
 	}
