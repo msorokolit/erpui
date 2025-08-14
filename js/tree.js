@@ -4,20 +4,13 @@ export function buildTree(rootRules) {
 
 export function renderTree(container, tree, onSelect, query) {
 	container.innerHTML = '';
-	const flat = [];
-	flatten(tree, [], flat);
-	const idsToShow = query ? new Set(fuzzySearch(flat, query).map(i => i.id)) : null;
-
 	const ul = document.createElement('ul');
 	ul.className = 'tree';
 	container.appendChild(ul);
-
-	for (const child of (tree.children || [])) {
-		renderNode(ul, child, 0, [], idsToShow, onSelect, query);
-	}
+	for (const child of (tree.children || [])) renderNode(ul, child, 0, [], onSelect);
 }
 
-function renderNode(container, node, depth, parentPath, idsToShow, onSelect, query) {
+function renderNode(container, node, depth, parentPath, onSelect) {
 	const path = [...parentPath, node.title];
 	const li = document.createElement('li'); li.className = 'tree-item';
 	const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='center'; row.style.gap='6px';
@@ -27,15 +20,22 @@ function renderNode(container, node, depth, parentPath, idsToShow, onSelect, que
 	toggle.addEventListener('click', () => { if (!hasChildren) return; expanded = !expanded; toggle.textContent = expanded ? '▾' : '▸'; childBox.style.display = expanded ? '' : 'none'; });
 	const btn = document.createElement('button'); btn.className='tree-btn'; btn.style.flex='1'; btn.dataset.path = path.join('>');
 	const fieldCount = (node.form?.fields || []).length;
-	const title = fieldCount ? `${node.title} · <span class="small">${fieldCount} полів</span>` : node.title;
-	btn.innerHTML = highlightTitle(title, query);
+	// Build label safely using DOM
+	btn.appendChild(document.createTextNode(node.title));
+	if (fieldCount) {
+		const sep = document.createTextNode(' · ');
+		btn.appendChild(sep);
+		const small = document.createElement('span');
+		small.className = 'small';
+		small.textContent = `${fieldCount} полів`;
+		btn.appendChild(small);
+	}
 	btn.addEventListener('click', () => onSelect({ ...node, path }));
-	if (idsToShow && !idsToShow.has(node.__id)) { li.style.display = 'none'; }
 	row.appendChild(toggle); row.appendChild(btn); li.appendChild(row);
 	const childBox = document.createElement('div'); childBox.style.marginLeft='20px'; li.appendChild(childBox);
 	container.appendChild(li);
 	if (!expanded) childBox.style.display='none'; else toggle.textContent='▾';
-	for (const child of (node.children||[])) renderNode(childBox, child, depth+1, path, idsToShow, onSelect, query);
+	for (const child of (node.children||[])) renderNode(childBox, child, depth+1, path, onSelect);
 }
 
 function flatten(node, path, out) {

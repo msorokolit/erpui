@@ -1,8 +1,7 @@
-// Minimal client-only ERP UI
+// Minimal client-only ERP UI (simplified)
 
 import { parseDataTxtToRules } from './parser.js';
 import { buildTree, renderTree } from './tree.js';
-import { renderForm, restoreDoc, saveDoc } from './forms.js';
 
 const state = {
 	text: '',
@@ -16,9 +15,6 @@ const els = {
 	content: document.getElementById('content'),
 	intro: document.getElementById('intro'),
 	docs: document.getElementById('docs'),
-	search: document.getElementById('searchInput'),
-	exportJsonBtn: document.getElementById('exportJsonBtn'),
-	clearCacheBtn: document.getElementById('clearCacheBtn'),
 	fileInput: document.getElementById('fileInput'),
 	loadFileBtn: document.getElementById('loadFileBtn'),
 };
@@ -45,68 +41,42 @@ async function ensureRules() {
 function onSelectNode(node) {
 	state.currentPath = node.path;
 	els.intro.style.display = 'none';
-	els.content.innerHTML = '';
-	const formSpec = node.form || null;
-	if (!formSpec) {
-		els.content.innerHTML = `<div class="card"><h3>${escapeHtml(node.title)}</h3><div class="small">Немає полів для цієї дії.</div></div>`;
-		els.docs.innerHTML = '';
-		return;
-	}
-	const form = renderForm(formSpec, {
-		onSave: (data) => {
-			saveDoc(node.path, data);
-			toast('Збережено');
-		},
-		onLoad: () => restoreDoc(node.path),
-	});
-	els.content.appendChild(form);
-	els.docs.innerHTML = docBlock(node);
+	renderTable(node);
 }
 
-function docBlock(node) {
+function renderTable(node) {
+	const fields = (node.form?.fields || []);
+	const meta = (node.form?.meta || []);
+	const title = node.title;
 	const breadcrumbs = node.path.join(' / ');
-	const fields = (node.form?.fields || []).map(f => `${f.key} (${f.type})`).join(', ');
-	return `
+	const table = `
 		<div class="card">
-			<h3>Опис</h3>
-			<div class="kv">
-				<div>Шлях</div><div>${escapeHtml(breadcrumbs)}</div>
-				<div>Поля</div><div>${escapeHtml(fields)}</div>
-			</div>
-			<div class="small">Вузлів: ${(node.children||[]).length} • Полів: ${(node.form?.fields||[]).length}</div>
+			<h3>${escapeHtml(title)}</h3>
+			<div class="small">${escapeHtml(breadcrumbs)}</div>
+			<table style="width:100%; border-collapse: collapse; margin-top: 8px;">
+				<thead>
+					<tr>
+						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Назва поля</th>
+						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Опис</th>
+					</tr>
+				</thead>
+				<tbody>
+					${fields.map(f => `
+						<tr>
+							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(f.label)}</td>
+							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(prettyMeta(f.meta))}</td>
+						</tr>
+					`).join('')}
+				</tbody>
+			</table>
+			${meta.length ? `<div class="small" style="margin-top:8px;">${escapeHtml(meta.join(' \n '))}</div>` : ''}
 		</div>
 	`;
-}
-
-function toast(msg) {
-	const el = document.createElement('div');
-	el.textContent = msg;
-	el.style.position = 'fixed';
-	el.style.bottom = '16px';
-	el.style.right = '16px';
-	el.style.background = 'rgba(0,0,0,.8)';
-	el.style.padding = '8px 10px';
-	el.style.border = '1px solid #273043';
-	el.style.borderRadius = '8px';
-	document.body.appendChild(el);
-	setTimeout(() => el.remove(), 1600);
+	els.content.innerHTML = table;
+	els.docs.innerHTML = '';
 }
 
 function hookHeaderActions() {
-	els.exportJsonBtn.addEventListener('click', () => {
-		const blob = new Blob([JSON.stringify(state.rules, null, 2)], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url; a.download = 'rules.json'; a.click();
-		URL.revokeObjectURL(url);
-	});
-	els.clearCacheBtn.addEventListener('click', () => {
-		localStorage.removeItem('erp_data_txt_v1');
-		location.reload();
-	});
-	els.search.addEventListener('input', () => {
-		renderTree(els.nav, state.tree, onSelectNode, els.search.value.trim());
-	});
 	els.loadFileBtn.addEventListener('click', () => els.fileInput.click());
 	els.fileInput.addEventListener('change', async (e) => {
 		const file = e.target.files?.[0];
@@ -120,7 +90,6 @@ function hookHeaderActions() {
 		els.content.innerHTML = '';
 		els.docs.innerHTML = '';
 		renderTree(els.nav, state.tree, onSelectNode, '');
-		toast('Завантажено файл правил');
 	});
 }
 
@@ -138,12 +107,19 @@ function hookHeaderActions() {
 		els.intro.innerHTML = `
 			<div class="card">
 				<h3>Помилка завантаження</h3>
-				<div class="small">Не вдається завантажити <code>data.txt</code>. Ви можете завантажити файл вручну кнопкою "Load file" у верхній панелі або запустити локальний HTTP сервер.</div>
+				<div class="small">Не вдається завантажити <code>data.txt</code>. Завантажте файл вручну кнопкою "Load file" у верхній панелі або запустіть локальний HTTP сервер.</div>
 			</div>
 		`;
 	}
 })();
 
 function escapeHtml(s){
-	return s.replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+	return String(s ?? '').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function prettyMeta(meta) {
+	if (!meta) return '';
+	if (meta.text && meta.text.length) return meta.text.join(' ');
+	if (Array.isArray(meta)) return meta.join(' ');
+	return meta.raw || '';
 }
