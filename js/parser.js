@@ -1,7 +1,7 @@
 // Parser for data.txt → JSON rules
 // - Headings: lines ending with ':' create tree nodes (routes)
 // - Fields: lines with ?XX tokens are attached to the nearest heading
-// - Depth: ignore ALL control chars; compute indentation only from spaces/tabs
+// - Depth: USE leading control chars (0x00-0x1F) together with tabs/spaces; control chars are not shown in UI
 
 const FIELD_REGEX = /\?([A-Z]{1,3}[0-9]?)(?:\s+([^:]+))?:/u;
 
@@ -13,13 +13,12 @@ export function parseDataTxtToRules(text) {
 
 	for (let raw of lines) {
 		if (raw == null) continue;
-		// Strip ALL control chars from the entire line for parsing
+		const depth = computeDepth(raw);
+		// Strip ALL control chars from the line for parsing and UI
 		const noCtrl = raw.replace(/[\x00-\x1F\x7F]/g, '');
 		const clean = noCtrl.trimEnd();
 		const trimmed = clean.trim();
 		if (!trimmed) continue;
-
-		const depth = computeDepth(noCtrl);
 
 		if (trimmed.endsWith(':')) {
 			const title = trimmed.replace(/:$/, '').trim();
@@ -51,16 +50,19 @@ export function parseDataTxtToRules(text) {
 	return root;
 }
 
-function computeDepth(lineNoCtrl) {
-	// Count only spaces/tabs before first non-space char
-	let i = 0, spaces = 0;
-	while (i < lineNoCtrl.length) {
-		const ch = lineNoCtrl[i];
+function computeDepth(rawLine) {
+	// Count leading control chars (0x00-0x1F), tabs, and spaces until first printable non-space
+	let i = 0, ctrl = 0, spaces = 0;
+	while (i < rawLine.length) {
+		const ch = rawLine[i];
+		const code = rawLine.charCodeAt(i);
+		if (code <= 31 || code === 127) { ctrl++; i++; continue; }
 		if (ch === ' ') { spaces++; i++; continue; }
 		if (ch === '\t') { spaces += 4; i++; continue; }
 		break;
 	}
-	return Math.floor(spaces / 2);
+	// Each control char contributes one level, plus indentation from spaces/tabs (2 spaces ~ 1 level)
+	return ctrl + Math.floor(spaces / 2);
 }
 
 function parseFieldLine(line) {
