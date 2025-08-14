@@ -46,7 +46,7 @@ function onSelectNode(node) {
 	els.content.innerHTML = '';
 	const formSpec = node.form || null;
 	if (!formSpec) {
-		els.content.innerHTML = `<div class="card"><h3>${node.title}</h3><div class="small">Немає полів для цієї дії.</div></div>`;
+		els.content.innerHTML = `<div class="card"><h3>${escapeHtml(node.title)}</h3><div class="small">Немає полів для цієї дії.</div></div>`;
 		els.docs.innerHTML = '';
 		return;
 	}
@@ -108,9 +108,23 @@ function hookHeaderActions() {
 }
 
 (async function boot(){
-	await ensureRules();
-	hookHeaderActions();
-	renderTree(els.nav, state.tree, onSelectNode, '');
+	try {
+		await ensureRules();
+		hookHeaderActions();
+		renderTree(els.nav, state.tree, onSelectNode, '');
+	} catch (err) {
+		console.error(err);
+		els.intro.style.display = '';
+		els.content.innerHTML = '';
+		els.docs.innerHTML = '';
+		els.intro.innerHTML = `
+			<div class="card">
+				<h3>Помилка завантаження</h3>
+				<div class="small">Не вдається завантажити <code>data.txt</code>. Будь ласка, відкрийте цей застосунок через локальний HTTP сервер (не як file://).</div>
+				<div class="small">Приклад: <code>python3 -m http.server 8000 -d /workspace</code>, далі відкрийте <code>http://localhost:8000/</code></div>
+			</div>
+		`;
+	}
 })();
 
 function escapeHtml(s){
