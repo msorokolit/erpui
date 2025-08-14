@@ -36,9 +36,28 @@ export function renderForm(formSpec, { onSave, onLoad }) {
 		for (const input of wrapper.querySelectorAll('[data-key]')) input.value = '';
 		saveLocal(formSpec.path, {});
 	});
+	const toggleMetaBtn = document.createElement('button');
+	toggleMetaBtn.className = 'button ghost';
+	toggleMetaBtn.textContent = 'Метадані';
+	toggleMetaBtn.addEventListener('click', () => {
+		metaEl.style.display = metaEl.style.display === 'none' ? '' : 'none';
+	});
 	actions.appendChild(saveBtn);
 	actions.appendChild(clearBtn);
+	actions.appendChild(toggleMetaBtn);
 	wrapper.appendChild(actions);
+
+	const metaEl = document.createElement('div');
+	metaEl.style.display = 'none';
+	metaEl.style.marginTop = '10px';
+	metaEl.innerHTML = `<div class="small">${escapeHtml((formSpec.meta||[]).join(' \n '))}</div>`;
+	wrapper.appendChild(metaEl);
+
+	// autosave on input
+	wrapper.addEventListener('input', () => {
+		const data = collect(wrapper, formSpec.fields);
+		saveLocal(formSpec.path, data);
+	});
 
 	return wrapper;
 }
@@ -63,11 +82,8 @@ function renderField(field, value) {
 			input = document.createElement('input'); input.type = 'text'; input.placeholder = 'дд.мм.рр або дд.мм.рррр'; break;
 		case 'select':
 			input = document.createElement('select');
-			// options from meta if any C·Текст:·1 варіант·2 варіант·
 			const opts = parseSelectOptions(field.meta);
-			for (const { value, label } of opts) {
-				const o = document.createElement('option'); o.value = value; o.textContent = label; input.appendChild(o);
-			}
+			for (const { value, label } of opts) { const o = document.createElement('option'); o.value = value; o.textContent = label; input.appendChild(o); }
 			break;
 		case 'vat':
 			input = document.createElement('select');
@@ -78,25 +94,29 @@ function renderField(field, value) {
 		default:
 			input = document.createElement('input'); input.type = 'text'; break;
 	}
+	if (field.constraints) {
+		if (typeof field.constraints.min === 'number') input.min = String(field.constraints.min);
+		if (typeof field.constraints.max === 'number') input.max = String(field.constraints.max);
+	}
 	input.value = value ?? '';
 	input.dataset.key = field.key;
 	wrap.appendChild(input);
-	if (field.meta?.length) {
-		const small = document.createElement('div'); small.className = 'small'; small.textContent = field.meta.join(' '); wrap.appendChild(small);
+	if (field.meta && field.meta.raw) {
+		const small = document.createElement('div'); small.className = 'small'; small.textContent = prettyMeta(field.meta); wrap.appendChild(small);
 	}
 	return wrap;
 }
 
 function parseSelectOptions(meta) {
 	const result = [];
-	if (!meta) return result;
-	const joined = meta.join(' ');
-	// Look for pattern like "C·Назва:·1 варіант·2 варіант·3 ..."
-	const parts = joined.split('·').map(s=>s.trim()).filter(Boolean);
-	for (let i=0;i<parts.length;i++) {
-		const p = parts[i];
-		if (/^\d+$/.test(p) && parts[i+1]) {
-			result.push({ value: p, label: parts[i+1] });
+	if (!meta || !meta.text) return result;
+	const parts = meta.text; // array strings
+	// Attempt to pair number -> next token as label from tokens
+	const tokens = meta.tokens || [];
+	for (let i=0;i<tokens.length;i++) {
+		const t = tokens[i];
+		if (/^\d+$/.test(t) && tokens[i+1]) {
+			result.push({ value: t, label: tokens[i+1] });
 			i++;
 		}
 	}
@@ -104,9 +124,9 @@ function parseSelectOptions(meta) {
 }
 
 function refPlaceholder(meta) {
-	if (!meta || !meta.length) return 'код/посилання';
-	const m = meta.join(' ').match(/R\s+(\d+)/);
-	return m ? `посилання на ${m[1]}` : 'код/посилання';
+	if (!meta || !meta.refs || !meta.refs.length) return 'код/посилання';
+	const r = meta.refs.find(r => r.code.toUpperCase()==='R');
+	return r ? `посилання на ${r.arg}` : 'код/посилання';
 }
 
 function collect(wrapper, fields) {
@@ -131,3 +151,12 @@ export function restoreDoc(path) {
 	const raw = localStorage.getItem(key);
 	return raw ? JSON.parse(raw) : {};
 }
+
+function prettyMeta(meta) {
+	const refStr = (meta.refs||[]).map(r=>`${r.code} ${r.arg}`).join(', ');
+	const numStr = (meta.numbers||[]).join(' | ');
+	const txtStr = (meta.text||[]).join(' ');
+	return [refStr, numStr, txtStr].filter(Boolean).join(' • ');
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }

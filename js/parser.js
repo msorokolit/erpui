@@ -1,42 +1,57 @@
 // Parser for data.txt → JSON rules
 // Heuristics:
-// - Indentation depth defines tree level (count of leading control chars and spaces)
-// - Headings: lines ending with ':' are nodes (groups or actions)
-// - Field lines contain tokens like ?R, ?N, ?S, ?D, ?C, ?I, ?B1, ?Q, ?Z, etc. We map to field types
-// - Account codes on right like "·R 37 ·1·" are captured as meta
+// - Depth is derived from leading control chars (e.g., \x11), tabs, and spaces
+// - Headings: lines ending with ':' create tree nodes
+// - Field lines: tokens like ?R, ?N, ?S, ?D, ?C, ?I, ?B1, ?Q, ?Z, ?TS, ?MT, etc. are mapped to types
+// - Right-side meta like "·R 37 ·1·" or "·N·1·1·12·" are parsed into structured metadata
 
-const FIELD_REGEX = /\?([A-Z]{1,2}[0-9]?)(?:\s+([^:]+))?:/u;
+const FIELD_REGEX = /\?([A-Z]{1,3}[0-9]?)(?:\s+([^:]+))?:/u;
 
 export function parseDataTxtToRules(text) {
 	const lines = text.split(/\r?\n/);
-	const root = { title: 'ROOT', children: [], level: 0 };
+	const root = { title: 'ROOT', children: [], depth: -1 };
 	const stack = [root];
+	let lastFieldHolder = null;
 
 	for (let raw of lines) {
-		if (!raw) continue;
-		const line = raw.replace(/\u0000|\u0001|\u0002|\u0010|\u0011|\u000f|\u0012|\u0013|\u0014|\u0015|\u0016|\u0017|\u0018|\u0019|\u001a/g, '').trimEnd();
-		const trimmed = line.trim();
+		if (raw == null) continue;
+		// Strip some non-printables while preserving indentation chars for depth
+		const clean = raw.replace(/[\u0000\u0002\u000f\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a]/g, '').trimEnd();
+		const trimmed = clean.trim();
 		if (!trimmed) continue;
 
-		const level = computeIndentLevel(raw);
-		// Adjust stack
-		while (stack.length && stack[stack.length - 1].level >= level + 1) stack.pop();
+		const depth = computeDepth(raw);
 
 		if (trimmed.endsWith(':')) {
 			const title = trimmed.replace(/:$/, '').trim();
-			const node = { title, children: [], level: level + 1 };
-			(stack[stack.length - 1].children).push(node);
+			// Adjust stack to current depth
+			while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+			const node = { title, children: [], depth };
+			stack[stack.length - 1].children.push(node);
 			stack.push(node);
+			lastFieldHolder = node;
 			continue;
 		}
 
-		// Field line for current node: attach to nearest actionable node (last heading)
-		const current = stack[stack.length - 1];
+		// If not heading: try field
 		const field = parseFieldLine(trimmed);
 		if (field) {
+			const current = stack[stack.length - 1];
 			if (!current.form) current.form = { title: current.title, fields: [], meta: [] };
-			if (field.kind === 'meta') current.form.meta.push(field.value);
-			else current.form.fields.push(field);
+			if (field.kind === 'meta') {
+				current.form.meta.push(field.value);
+				lastFieldHolder = current;
+			} else {
+				current.form.fields.push(field);
+				lastFieldHolder = current;
+			}
+			continue;
+		}
+
+		// If line is plain meta continuation (e.g., "multiline" or line of codes), attach to last holder
+		if (lastFieldHolder && /^[\p{L}\p{N}\$#].*/u.test(trimmed)) {
+			lastFieldHolder.form = lastFieldHolder.form || { title: lastFieldHolder.title, fields: [], meta: [] };
+			lastFieldHolder.form.meta.push(trimmed);
 		}
 	}
 
@@ -44,23 +59,28 @@ export function parseDataTxtToRules(text) {
 	return root;
 }
 
-function computeIndentLevel(raw) {
-	// Count leading control chars and tabs/spaces as nesting
-	let count = 0;
-	for (let i = 0; i < raw.length; i++) {
+function computeDepth(raw) {
+	// Count leading DC1 (\x11), other control chars, tabs, and spaces
+	let i = 0, dc1 = 0, ctrl = 0, tabs = 0, spaces = 0;
+	while (i < raw.length) {
+		const code = raw.charCodeAt(i);
 		const ch = raw[i];
-		if (ch === ' ' || ch === '\t' || ch.charCodeAt(0) < 32) count++;
-		else break;
+		if (code === 0x11) { dc1++; i++; continue; }
+		if (ch === '\t') { tabs++; i++; continue; }
+		if (ch === ' ') { spaces++; i++; continue; }
+		if (code <= 31) { ctrl++; i++; continue; }
+		break;
 	}
-	// Coarsen
-	return Math.floor(count / 2);
+	// Weight DC1 highest, then tab, then spaces and generic ctrl
+	const depth = dc1 + tabs + Math.floor(spaces / 2) + Math.floor(ctrl / 4);
+	return depth;
 }
 
 function parseFieldLine(line) {
 	const m = line.match(FIELD_REGEX);
 	if (!m) {
 		// meta tails like "$" or codes like "Z ·9·"; capture as meta
-		if (/^[$A-Za-z0-9].*/.test(line)) {
+		if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) {
 			return { kind: 'meta', value: line };
 		}
 		return null;
@@ -68,22 +88,23 @@ function parseFieldLine(line) {
 	const code = m[1];
 	const label = (m[2] || '').trim();
 	const rest = line.slice(m.index + m[0].length).trim();
-	const type = mapCodeToType(code, rest);
+	const type = mapCodeToType(code);
 	const meta = parseRightMeta(rest);
-	return { kind: 'field', key: toKey(label || code), label: label || code, code, type, meta };
+	const constraints = deriveConstraints(meta);
+	return { kind: 'field', key: toKey(label || code), label: label || code, code, type, meta, constraints };
 }
 
 function toKey(label) {
 	return label
 		.toLowerCase()
-		.replace(/[^a-z0-9а-яёіїєґ\s]/gi, '')
+		.replace(/[^a-z0-9а-яёїієґ\s]/gi, '')
 		.trim()
 		.replace(/\s+/g, '_') || 'field';
 }
 
-function mapCodeToType(code, tail) {
+function mapCodeToType(code) {
 	switch (true) {
-		case /^R/.test(code): return 'ref'; // reference
+		case /^R/.test(code): return 'ref';
 		case /^N/.test(code): return 'number';
 		case /^S$/.test(code): return 'text';
 		case /^D/.test(code): return 'date';
@@ -98,11 +119,39 @@ function mapCodeToType(code, tail) {
 }
 
 function parseRightMeta(rest) {
-	// capture tokens like ·R 37 ·1· or lists like C·Метод:·1 ...
-	const meta = [];
-	if (!rest) return meta;
-	meta.push(rest);
-	return meta;
+	if (!rest) return { raw: '', tokens: [], refs: [], numbers: [], text: [] };
+	const raw = rest;
+	const parts = raw.split('·').map(s => s.trim()).filter(Boolean);
+	const tokens = [];
+	const refs = [];
+	const numbers = [];
+	const text = [];
+	for (let i = 0; i < parts.length; i++) {
+		const p = parts[i];
+		if (/^[A-Z]{1,3}$/i.test(p) && (i + 1) < parts.length && /^[A-Z0-9]+$/i.test(parts[i + 1])) {
+			refs.push({ code: p.toUpperCase(), arg: parts[i + 1] });
+			tokens.push(p, parts[i + 1]);
+			i++;
+			continue;
+		}
+		if (/^-?\d+(?:[.,]\d+)?$/.test(p)) { numbers.push(p.replace(',', '.')); tokens.push(p); continue; }
+		if (p) { text.push(p); tokens.push(p); }
+	}
+	return { raw, tokens, refs, numbers, text };
+}
+
+function deriveConstraints(meta) {
+	const c = {};
+	if (!meta || !meta.numbers || meta.numbers.length === 0) return c;
+	// Common pattern: N·min·min2·max· — we take min = first numeric, max = last numeric when >= 2 nums
+	if (meta.numbers.length >= 2) {
+		const nums = meta.numbers.map(parseFloat).filter(n => Number.isFinite(n));
+		if (nums.length >= 2) {
+			c.min = Math.min(nums[0], nums[1]);
+			c.max = nums[nums.length - 1];
+		}
+	}
+	return c;
 }
 
 function annotatePaths(node, path) {
