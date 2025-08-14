@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ERP UI - Client Only</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">ERP UI</div>
+    <div class="search">
+      <input id="searchInput" type="search" placeholder="Пошук дій / полів..." autocomplete="off" />
+    </div>
+    <div class="header-actions">
+      <button id="exportJsonBtn" title="Експорт правил JSON">Export JSON</button>
+      <button id="clearCacheBtn" title="Очистити кеш правил">Clear cache</button>
+    </div>
+  </header>
+
+  <div class="app-root">
+    <aside class="nav" id="nav"></aside>
+    <main class="main">
+      <section class="intro" id="intro">
+        <h1>Клієнтський ERP-інтерфейс</h1>
+        <p>Цей застосунок динамічно завантажує <code>data.txt</code>, перетворює його на JSON-навігацію та форми, і рендерить їх на клієнті. Жодної серверної логіки.</p>
+        <ul>
+          <li>Навігація формується із заголовків та відступів у <code>data.txt</code></li>
+          <li>Поля форми визначаються мітками на кшталт <code>?R</code>, <code>?N</code>, <code>?S</code>, <code>?D</code> тощо</li>
+          <li>Збережені документи зберігаються у <code>localStorage</code></li>
+        </ul>
+      </section>
+      <section class="content" id="content"></section>
+      <section class="docs" id="docs"></section>
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <span>Client-only ERP UI • data.txt → JSON • No backend</span>
+  </footer>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
