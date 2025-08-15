@@ -46,30 +46,32 @@ function onSelectNode(node) {
 
 function renderTable(node) {
 	const fields = (node.form?.fields || []);
-	const meta = (node.form?.meta || []);
 	const title = node.title;
 	const breadcrumbs = node.path.join(' / ');
 	const table = `
 		<div class="card">
 			<h3>${escapeHtml(title)}</h3>
 			<div class="small">${escapeHtml(breadcrumbs)}</div>
-			<table style="width:100%; border-collapse: collapse; margin-top: 8px;">
+			<table class="tbl">
 				<thead>
 					<tr>
-						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Питання</th>
-						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Опис (розбір)</th>
+						<th style="width:80px">Var</th>
+						<th>Питання</th>
+						<th style="width:160px">Тип</th>
+						<th>Деталі</th>
 					</tr>
 				</thead>
 				<tbody>
 					${fields.map(f => `
 						<tr>
-							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(renderQuestion(f))}</td>
-							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(renderSpec(f))}</td>
+							<td class="mono">${escapeHtml(f.var || f.code || '')}</td>
+							<td>${escapeHtml(renderQuestion(f))}</td>
+							<td>${typeBadge(f)}</td>
+							<td class="small">${escapeHtml(renderDetails(f))}</td>
 						</tr>
 					`).join('')}
 				</tbody>
 			</table>
-			${renderSummary(fields, meta)}
 		</div>
 	`;
 	els.content.innerHTML = table;
@@ -77,41 +79,50 @@ function renderTable(node) {
 }
 
 function renderQuestion(f) {
-	// Build readable question label: var code + label
-	if (f.code === '$') return '$ sum';
+	if (f.code === '$') return 'Σ sum';
 	if (f.code === '#') return `# ${f.label}`;
-	return `${f.var} ${f.label}`.trim();
+	return f.label || '';
 }
 
-function renderSpec(f) {
+function typeBadge(f) {
+	const s = f.spec || {};
+	let type = 'open', cls = 'badge';
+	if (s.kind === 'sum' || f.code === '$') { type = 'sum'; cls += ' badge-sum'; }
+	else if (s.kind === 'loop') { type = 'list'; cls += ' badge-loop'; }
+	else if (s.input === 'select') { type = 'select'; cls += ' badge-select'; }
+	else if (s.input === 'string') { type = 'string'; cls += ' badge-string'; }
+	else if (s.input === 'number') { type = 'number'; cls += ' badge-number'; }
+	else if (s.kind === 'run') { type = s.editable ? 'run (edit)' : 'run (ro)'; cls += ' badge-run'; }
+	return `<span class="${cls}">${type}</span>`;
+}
+
+function renderDetails(f) {
 	const s = f.spec || {};
 	const parts = f.meta?.parts || [];
-	if (s.kind === 'sum') return 'number (sum)';
-	if (s.kind === 'loop') return `loop: ${parts.join(' | ')}`;
+	if (s.kind === 'sum' || f.code === '$') return 'сума (число)';
+	if (s.kind === 'loop') return parts.join(' · ');
 	if (s.input === 'select') {
 		const opts = (s.options||[]).join(', ');
-		return `select: ${s.menuTitle || ''}${opts ? ' ['+opts+']' : ''}`.trim();
+		return `${s.menuTitle || ''}${opts ? ' ['+opts+']' : ''}`.trim();
 	}
 	if (s.input === 'string') {
 		const bits = [];
 		if (s.default != null) bits.push(`default=${s.default}`);
 		if (s.max != null) bits.push(`max=${s.max}`);
-		return `string${bits.length?': '+bits.join(', '):''}`;
+		return bits.join(', ');
 	}
 	if (s.input === 'number') {
 		const bits = [];
 		if (s.default != null) bits.push(`default=${s.default}`);
 		if (s.min != null) bits.push(`min=${s.min}`);
 		if (s.max != null) bits.push(`max=${s.max}`);
-		return `number${bits.length?': '+bits.join(', '):''}`;
+		return bits.join(', ');
 	}
 	if (s.kind === 'run') {
 		const runs = (s.params||[]).map(r => `${r.code}(${(r.params||[]).join(', ')})`).join(' ; ');
-		return `${s.editable ? 'run(editable)' : 'run(readonly)'}${runs?': '+runs:''}`;
+		return runs;
 	}
-	if (s.params && s.params.length) {
-		return s.params.map(p => p.params.join(' ')).join(' | ');
-	}
+	if (s.params && s.params.length) return s.params.map(p => p.params.join(' ')).join(' | ');
 	return parts.join(' ');
 }
 

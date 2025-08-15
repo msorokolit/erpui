@@ -98,3 +98,16 @@ body {
 .small { font-size:12px; color: var(--muted); }
 input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
+
+/* table and badges */
+.tbl { width:100%; border-collapse: collapse; margin-top: 8px; }
+.tbl th, .tbl td { padding: 8px 6px; border-bottom: 1px dashed var(--border); text-align: left; vertical-align: top; }
+.tbl thead th { border-bottom: 1px solid var(--border); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: var(--muted); }
+.badge { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border:1px solid var(--border); background:#0d1117; color: var(--muted); }
+.badge-sum { background: rgba(114, 234, 167, 0.08); color:#a4f5c7; border-color: rgba(114,234,167,.25); }
+.badge-loop { background: rgba(247, 171, 68, 0.08); color:#f7ab44; border-color: rgba(247,171,68,.25); }
+.badge-run { background: rgba(91, 140, 255, 0.08); color:#5b8cff; border-color: rgba(91,140,255,.25); }
+.badge-select { background: rgba(157, 140, 255, 0.08); color:#b1a7ff; border-color: rgba(157,140,255,.25); }
+.badge-string { background: rgba(255, 140, 199, 0.08); color:#ff8cc7; border-color: rgba(255,140,199,.25); }
+.badge-number { background: rgba(255, 212, 92, 0.08); color:#ffd45c; border-color: rgba(255,212,92,.25); }
