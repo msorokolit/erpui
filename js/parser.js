@@ -1,9 +1,9 @@
 // Parser for data.txt → JSON rules
-// - Headings: lines ending with ':' create tree nodes (routes)
-// - Fields: lines with ?XX tokens are attached to the nearest heading
-// - Depth: USE leading control chars (0x00-0x1F) together with tabs/spaces; control chars are not shown in UI
+// - Depth: ONLY leading control chars (0x00-0x1F) define depth
+// - Routes: lines ending with ':' and not starting with '?' create tree nodes
+// - Fields: lines starting with '?' define a variable; store var code and parse tail spec
 
-const FIELD_REGEX = /\?([A-Z]{1,3}[0-9]?)(?:\s+([^:]+))?:/u;
+const FIELD_REGEX = /\?([A-Z]{1,2})(?:\s+([^:]+))?:/u; // 1-2 char variable name
 
 export function parseDataTxtToRules(text) {
 	const lines = text.split(/\r?\n/);
@@ -14,12 +14,12 @@ export function parseDataTxtToRules(text) {
 	for (let raw of lines) {
 		if (raw == null) continue;
 		const depth = computeDepth(raw);
-		// Strip ALL control chars from the line for parsing and UI
 		const noCtrl = raw.replace(/[\x00-\x1F\x7F]/g, '');
 		const clean = noCtrl.trimEnd();
 		const trimmed = clean.trim();
 		if (!trimmed) continue;
 
+		// Route
 		if (trimmed.endsWith(':') && !trimmed.startsWith('?')) {
 			const title = trimmed.replace(/:$/, '').trim();
 			if (!title) continue;
@@ -31,16 +31,22 @@ export function parseDataTxtToRules(text) {
 			continue;
 		}
 
+		// Field
 		const field = parseFieldLine(trimmed);
 		if (field) {
 			const current = stack[stack.length - 1];
 			if (!current.form) current.form = { title: current.title, fields: [], meta: [] };
 			if (field.kind === 'meta') current.form.meta.push(field.value);
-			else current.form.fields.push(field);
+			else {
+				// derive UI spec per provided rules
+				field.spec = deriveSpec(field.meta);
+				current.form.fields.push(field);
+			}
 			lastFieldHolder = current;
 			continue;
 		}
 
+		// Plain meta continuation
 		if (lastFieldHolder && /^[\p{L}\p{N}\$#].*/u.test(trimmed)) {
 			lastFieldHolder.form = lastFieldHolder.form || { title: lastFieldHolder.title, fields: [], meta: [] };
 			lastFieldHolder.form.meta.push(trimmed);
@@ -52,18 +58,13 @@ export function parseDataTxtToRules(text) {
 }
 
 function computeDepth(rawLine) {
-	// Count leading control chars (0x00-0x1F), tabs, and spaces until first printable non-space
-	let i = 0, ctrl = 0, spaces = 0;
+	let i = 0, ctrl = 0;
 	while (i < rawLine.length) {
-		const ch = rawLine[i];
 		const code = rawLine.charCodeAt(i);
 		if (code <= 31 || code === 127) { ctrl++; i++; continue; }
-		if (ch === ' ') { spaces++; i++; continue; }
-		if (ch === '\t') { spaces += 4; i++; continue; }
 		break;
 	}
-	// Each control char contributes one level, plus indentation from spaces/tabs (2 spaces ~ 1 level)
-	return ctrl + Math.floor(spaces / 2);
+	return ctrl; // ONLY control chars define depth
 }
 
 function parseFieldLine(line) {
@@ -72,13 +73,11 @@ function parseFieldLine(line) {
 		if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) return { kind: 'meta', value: line };
 		return null;
 	}
-	const code = m[1];
+	const varCode = m[1];
 	const label = (m[2] || '').trim();
 	const rest = line.slice(m.index + m[0].length).trim();
-	const type = mapCodeToType(code);
 	const meta = parseRightMeta(rest);
-	const constraints = deriveConstraints(meta);
-	return { kind: 'field', key: toKey(label || code), label: label || code, code, type, meta, constraints };
+	return { kind: 'field', var: varCode, key: toKey(label || varCode), label: label || varCode, code: varCode, meta };
 }
 
 function toKey(label) {
@@ -89,59 +88,89 @@ function toKey(label) {
 		.replace(/\s+/g, '_') || 'field';
 }
 
-function mapCodeToType(code) {
-	switch (true) {
-		case /^R/.test(code): return 'ref';
-		case /^N/.test(code): return 'number';
-		case /^S$/.test(code): return 'text';
-		case /^D/.test(code): return 'date';
-		case /^C$/.test(code): return 'select';
-		case /^I$/.test(code): return 'vat';
-		case /^B/.test(code): return 'amount';
-		case /^Q/.test(code): return 'quantity';
-		case /^Z/.test(code): return 'price';
-		case /^T/.test(code): return 'text';
-		default: return 'text';
-	}
-}
-
 function parseRightMeta(rest) {
-	if (!rest) return { raw: '', tokens: [], refs: [], numbers: [], text: [] };
-	const raw = rest;
-	const parts = raw.split('·').map(s => s.trim()).filter(Boolean);
-	const tokens = [];
-	const refs = [];
-	const numbers = [];
-	const text = [];
-	for (let i = 0; i < parts.length; i++) {
-		const p = parts[i];
-		if (/^[A-Z]{1,3}$/i.test(p) && (i + 1) < parts.length && /^[A-Z0-9]+$/i.test(parts[i + 1])) {
-			refs.push({ code: p.toUpperCase(), arg: parts[i + 1] });
-			tokens.push(p, parts[i + 1]);
-			i++;
-			continue;
-		}
-		if (/^-?\d+(?:[.,]\d+)?$/.test(p)) { numbers.push(p.replace(',', '.')); tokens.push(p); continue; }
-		if (p) { text.push(p); tokens.push(p); }
-	}
-	return { raw, tokens, refs, numbers, text };
+	const parts = rest ? rest.split('·').map(s => s.trim()).filter(Boolean) : [];
+	return { raw: rest || '', parts };
 }
 
-function deriveConstraints(meta) {
-	const c = {};
-	if (!meta || !meta.numbers || meta.numbers.length === 0) return c;
-	if (meta.numbers.length >= 2) {
-		const nums = meta.numbers.map(parseFloat).filter(n => Number.isFinite(n));
-		if (nums.length >= 2) {
-			c.min = Math.min(nums[0], nums[1]);
-			c.max = nums[nums.length - 1];
+function deriveSpec(meta) {
+	const spec = { kind: 'open', editable: true, params: [] };
+	if (!meta || !meta.parts || meta.parts.length === 0) return spec;
+	const p = meta.parts;
+	let i = 0;
+	function isCode(tok) { return /^[A-Z]{1,2}$/.test(tok); }
+	function takeUntilNextCode(start) {
+		const out = [];
+		for (let j = start; j < p.length; j++) {
+			if (isCode(p[j]) && j !== start) break;
+			out.push(p[j]);
 		}
+		return out;
 	}
-	return c;
+	while (i < p.length) {
+		const t = p[i];
+		if (t === 'R') {
+			spec.kind = 'run'; spec.editable = false;
+			const params = takeUntilNextCode(i + 1);
+			spec.params.push({ code: 'R', params });
+			i += 1 + params.length; continue;
+		}
+		if (t === 'X') {
+			spec.kind = 'run'; spec.editable = true;
+			const params = takeUntilNextCode(i + 1);
+			spec.params.push({ code: 'X', params });
+			i += 1 + params.length; continue;
+		}
+		if (t === 'C') {
+			spec.input = 'select';
+			const params = takeUntilNextCode(i + 1);
+			const [menuTitle, ...options] = params;
+			spec.menuTitle = menuTitle || '';
+			spec.options = options;
+			spec.params.push({ code: 'C', params });
+			i += 1 + params.length; continue;
+		}
+		if (t === 'S') {
+			spec.input = 'string';
+			const params = takeUntilNextCode(i + 1);
+			const [def, maxLen] = params;
+			spec.default = def ?? '';
+			spec.max = maxLen ? Number(maxLen) : undefined;
+			spec.params.push({ code: 'S', params });
+			i += 1 + params.length; continue;
+		}
+		if (t === 'N') {
+			spec.input = 'number';
+			const params = takeUntilNextCode(i + 1);
+			const [def, min, max] = params;
+			spec.default = toNum(def);
+			spec.min = toNum(min);
+			spec.max = toNum(max);
+			spec.params.push({ code: 'N', params });
+			i += 1 + params.length; continue;
+		}
+		if (t.startsWith('#')) {
+			spec.loop = true;
+			const params = takeUntilNextCode(i + 1);
+			spec.params.push({ code: '#', params: [t.slice(1), ...params] });
+			i += 1 + params.length; continue;
+		}
+		if (/^multiline$/i.test(t)) { spec.multiline = true; i++; continue; }
+		// everything else: open list with params
+		const params = takeUntilNextCode(i);
+		if (params.length) {
+			spec.kind = spec.kind === 'open' ? 'open' : spec.kind;
+			spec.params.push({ code: 'OPEN', params });
+			i += params.length; continue;
+		}
+		i++;
+	}
+	return spec;
 }
+
+function toNum(v) { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : undefined; }
 
 function annotatePaths(node, path) {
-	// Path contains only headings (routes), never fields
 	node.path = [...path, node.title].filter(Boolean);
 	if (node.form) node.form.path = node.path;
 	for (const child of (node.children || [])) annotatePaths(child, node.path);
