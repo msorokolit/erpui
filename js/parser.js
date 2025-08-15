@@ -68,16 +68,39 @@ function computeDepth(rawLine) {
 }
 
 function parseFieldLine(line) {
-	const m = line.match(FIELD_REGEX);
-	if (!m) {
-		if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) return { kind: 'meta', value: line };
-		return null;
+	// Support optional space after '?' or '#'
+	if (line.startsWith('?')) {
+		const body = line.slice(1).trimStart();
+		const m = body.match(/^([A-Z]{1,2})\s+/);
+		if (!m) return null;
+		const varCode = m[1];
+		const afterCode = body.slice(m[0].length);
+		const colon = afterCode.indexOf(':');
+		const label = colon >= 0 ? afterCode.slice(0, colon).trim() : afterCode.trim();
+		const tail = colon >= 0 ? afterCode.slice(colon + 1).trim() : '';
+		const meta = parseRightMeta(tail);
+		return { kind: 'field', var: varCode, key: toKey(label || varCode), label: label || varCode, code: varCode, meta };
 	}
-	const varCode = m[1];
-	const label = (m[2] || '').trim();
-	const rest = line.slice(m.index + m[0].length).trim();
-	const meta = parseRightMeta(rest);
-	return { kind: 'field', var: varCode, key: toKey(label || varCode), label: label || varCode, code: varCode, meta };
+	if (line.startsWith('#')) {
+		const body = line.slice(1).trimStart();
+		const colon = body.indexOf(':');
+		const label = colon >= 0 ? body.slice(0, colon).trim() : body.trim();
+		const tail = colon >= 0 ? body.slice(colon + 1).trim() : '';
+		const meta = parseRightMeta(tail);
+		const field = { kind: 'field', var: '#', key: toKey(label || 'loop'), label: label || 'loop', code: '#', meta };
+		field.spec = { kind: 'loop', loop: true, params: meta.parts };
+		return field;
+	}
+	if (line === '$' || line.startsWith('$ ')) {
+		const label = 'sum';
+		const meta = parseRightMeta('');
+		const field = { kind: 'field', var: '$', key: toKey(label), label, code: '$', meta };
+		field.spec = { kind: 'sum', input: 'number' };
+		return field;
+	}
+	// meta-only or not a field line
+	if (/^[$#A-Za-zА-Яа-яЇїІіЄєҐґ0-9].*/u.test(line)) return { kind: 'meta', value: line };
+	return null;
 }
 
 function toKey(label) {

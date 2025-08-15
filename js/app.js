@@ -56,15 +56,15 @@ function renderTable(node) {
 			<table style="width:100%; border-collapse: collapse; margin-top: 8px;">
 				<thead>
 					<tr>
-						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Назва поля</th>
-						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Опис</th>
+						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Питання</th>
+						<th style="text-align:left; border-bottom:1px solid #273043; padding:6px 4px;">Опис (розбір)</th>
 					</tr>
 				</thead>
 				<tbody>
 					${fields.map(f => `
 						<tr>
-							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(f.label)}</td>
-							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(prettyMeta(f.meta))}</td>
+							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(renderQuestion(f))}</td>
+							<td style="padding:6px 4px; border-bottom:1px dashed #273043;">${escapeHtml(renderSpec(f))}</td>
 						</tr>
 					`).join('')}
 				</tbody>
@@ -74,6 +74,45 @@ function renderTable(node) {
 	`;
 	els.content.innerHTML = table;
 	els.docs.innerHTML = '';
+}
+
+function renderQuestion(f) {
+	// Build readable question label: var code + label
+	if (f.code === '$') return '$ sum';
+	if (f.code === '#') return `# ${f.label}`;
+	return `${f.var} ${f.label}`.trim();
+}
+
+function renderSpec(f) {
+	const s = f.spec || {};
+	const parts = f.meta?.parts || [];
+	if (s.kind === 'sum') return 'number (sum)';
+	if (s.kind === 'loop') return `loop: ${parts.join(' | ')}`;
+	if (s.input === 'select') {
+		const opts = (s.options||[]).join(', ');
+		return `select: ${s.menuTitle || ''}${opts ? ' ['+opts+']' : ''}`.trim();
+	}
+	if (s.input === 'string') {
+		const bits = [];
+		if (s.default != null) bits.push(`default=${s.default}`);
+		if (s.max != null) bits.push(`max=${s.max}`);
+		return `string${bits.length?': '+bits.join(', '):''}`;
+	}
+	if (s.input === 'number') {
+		const bits = [];
+		if (s.default != null) bits.push(`default=${s.default}`);
+		if (s.min != null) bits.push(`min=${s.min}`);
+		if (s.max != null) bits.push(`max=${s.max}`);
+		return `number${bits.length?': '+bits.join(', '):''}`;
+	}
+	if (s.kind === 'run') {
+		const runs = (s.params||[]).map(r => `${r.code}(${(r.params||[]).join(', ')})`).join(' ; ');
+		return `${s.editable ? 'run(editable)' : 'run(readonly)'}${runs?': '+runs:''}`;
+	}
+	if (s.params && s.params.length) {
+		return s.params.map(p => p.params.join(' ')).join(' | ');
+	}
+	return parts.join(' ');
 }
 
 function hookHeaderActions() {
