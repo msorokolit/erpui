@@ -69,7 +69,7 @@ function renderTable(node) {
 					`).join('')}
 				</tbody>
 			</table>
-			${meta.length ? `<div class="small" style="margin-top:8px;">${escapeHtml(meta.join(' \n '))}</div>` : ''}
+			${renderSummary(fields, meta)}
 		</div>
 	`;
 	els.content.innerHTML = table;
@@ -113,6 +113,35 @@ function renderSpec(f) {
 		return s.params.map(p => p.params.join(' ')).join(' | ');
 	}
 	return parts.join(' ');
+}
+
+function renderSummary(fields, meta) {
+	const sumFields = fields.filter(f => f.code === '$' || f.spec?.kind === 'sum');
+	const loopFields = fields.filter(f => f.spec?.kind === 'loop');
+	const hasMeta = Array.isArray(meta) && meta.length > 0;
+	if (!sumFields.length && !loopFields.length && !hasMeta) return '';
+	let html = '<div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap:12px;">';
+	if (sumFields.length) {
+		html += '<div class="card"><h3>Σ Підсумок</h3><ul style="margin:6px 0 0 16px;">';
+		for (const f of sumFields) {
+			html += `<li>${escapeHtml(renderQuestion(f))} — ${escapeHtml(renderSpec(f))}</li>`;
+		}
+		html += '</ul></div>';
+	}
+	if (loopFields.length) {
+		html += '<div class="card"><h3>Списки</h3><ul style="margin:6px 0 0 16px;">';
+		for (const f of loopFields) {
+			html += `<li>${escapeHtml(f.label)} — ${escapeHtml(renderSpec(f))}</li>`;
+		}
+		html += '</ul></div>';
+	}
+	if (hasMeta) {
+		html += '<div class="card"><h3>Параметри розділу</h3><ul style="margin:6px 0 0 16px;">';
+		for (const m of meta) html += `<li>${escapeHtml(m)}</li>`;
+		html += '</ul></div>';
+	}
+	html += '</div>';
+	return html;
 }
 
 function hookHeaderActions() {
