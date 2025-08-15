@@ -71,7 +71,7 @@ function parseFieldLine(line) {
 	// Support optional space after '?' or '#'
 	if (line.startsWith('?')) {
 		const body = line.slice(1).trimStart();
-		const m = body.match(/^([A-Z]{1,2})\s+/);
+		const m = body.match(/^([A-Z0-9]{1,2})\s+/); // accept letter/digit up to 2 chars, e.g., R0, B1, RZ
 		if (!m) return null;
 		const varCode = m[1];
 		const afterCode = body.slice(m[0].length);
@@ -121,11 +121,11 @@ function deriveSpec(meta) {
 	if (!meta || !meta.parts || meta.parts.length === 0) return spec;
 	const p = meta.parts;
 	let i = 0;
-	function isCode(tok) { return /^[A-Z]{1,2}$/.test(tok); }
-	function takeUntilNextCode(start) {
+	function isControl(tok) { return tok === 'R' || tok === 'X' || tok === 'C' || tok === 'S' || tok === 'N' || tok === 'multiline' || tok.startsWith('#'); }
+	function takeUntilNextControl(start) {
 		const out = [];
 		for (let j = start; j < p.length; j++) {
-			if (isCode(p[j]) && j !== start) break;
+			if (isControl(p[j]) && j !== start) break;
 			out.push(p[j]);
 		}
 		return out;
@@ -134,19 +134,19 @@ function deriveSpec(meta) {
 		const t = p[i];
 		if (t === 'R') {
 			spec.kind = 'run'; spec.editable = false;
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			spec.params.push({ code: 'R', params });
 			i += 1 + params.length; continue;
 		}
 		if (t === 'X') {
 			spec.kind = 'run'; spec.editable = true;
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			spec.params.push({ code: 'X', params });
 			i += 1 + params.length; continue;
 		}
 		if (t === 'C') {
 			spec.input = 'select';
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			const [menuTitle, ...options] = params;
 			spec.menuTitle = menuTitle || '';
 			spec.options = options;
@@ -155,7 +155,7 @@ function deriveSpec(meta) {
 		}
 		if (t === 'S') {
 			spec.input = 'string';
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			const [def, maxLen] = params;
 			spec.default = def ?? '';
 			spec.max = maxLen ? Number(maxLen) : undefined;
@@ -164,7 +164,7 @@ function deriveSpec(meta) {
 		}
 		if (t === 'N') {
 			spec.input = 'number';
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			const [def, min, max] = params;
 			spec.default = toNum(def);
 			spec.min = toNum(min);
@@ -174,13 +174,12 @@ function deriveSpec(meta) {
 		}
 		if (t.startsWith('#')) {
 			spec.loop = true;
-			const params = takeUntilNextCode(i + 1);
+			const params = takeUntilNextControl(i + 1);
 			spec.params.push({ code: '#', params: [t.slice(1), ...params] });
 			i += 1 + params.length; continue;
 		}
 		if (/^multiline$/i.test(t)) { spec.multiline = true; i++; continue; }
-		// everything else: open list with params
-		const params = takeUntilNextCode(i);
+		const params = takeUntilNextControl(i);
 		if (params.length) {
 			spec.kind = spec.kind === 'open' ? 'open' : spec.kind;
 			spec.params.push({ code: 'OPEN', params });
